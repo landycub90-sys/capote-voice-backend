@@ -99,3 +99,18 @@ export async function apiGet(path, accessToken) {
   if (!res.ok) throw new Error(`Extend API ${path} → ${res.status}`);
   return res.json();
 }
+
+/** POST to an Extend API endpoint with a bearer token and JSON body. */
+export async function apiPost(path, accessToken, body = {}) {
+  const res = await fetch(`${config.intermedia.apiBase}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Extend API POST ${path} → ${res.status}`);
+  return res.json();
+}

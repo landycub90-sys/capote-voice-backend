@@ -1,6 +1,6 @@
-import { config, oauthConfigured } from '../config.js';
+import { config, oauthConfigured, serviceAccountConfigured } from '../config.js';
 import { getSession, updateTokens } from '../lib/session.js';
-import { apiGet, refreshToken } from '../lib/intermedia.js';
+import { apiGet, apiPost, refreshToken, serviceAccountToken } from '../lib/intermedia.js';
 import { mock } from '../lib/mock.js';
 import { Router } from 'express';
 
@@ -157,10 +157,49 @@ apiRouter.get('/conversations', async (req, res) => {
   } catch (e) { req.log?.warn(e); res.json([]); }
 });
 
-// Call history → Analytics API (service-account scope); meetings spec still pending.
-// Both degrade to an empty list so the app shows clean empty states (no errors).
-apiRouter.get('/call-history', (req, res) => res.json(oauthConfigured() ? [] : mock.calls));
-apiRouter.get('/meetings',     (req, res) => res.json(oauthConfigured() ? [] : mock.meetings));
+/** Recent call history via the Analytics API (service-account, account-wide),
+ *  filtered to the logged-in user.
+ *  POST /analytics/calls/call/detail?dateFrom&dateTo → { calls:[{ direction, duration,
+ *    from:{name,number,userUniqueId}, to:{name,number,userUniqueId}, start }] } */
+apiRouter.get('/call-history', async (req, res) => {
+  if (!oauthConfigured()) return res.json(mock.calls);
+  if (!serviceAccountConfigured()) return res.json([]);
+  try {
+    const me = await apiGet('/address-book/v3/contacts/_me', req.userToken); // { id }
+    const saToken = await serviceAccountToken();
+    const to = new Date();
+    const from = new Date(to.getTime() - 30 * 24 * 3600 * 1000); // last 30 days
+    const q = new URLSearchParams({
+      dateFrom: from.toISOString(),
+      dateTo: to.toISOString(),
+      sortColumn: 'start',
+      descending: 'true',
+      size: '100',
+    });
+    const data = await apiPost(`/analytics/calls/call/detail?${q}`, saToken, {});
+    const records = (data.calls || [])
+      .map((c) => {
+        const iAmCaller = c.from?.userUniqueId === me.id;
+        const iAmCallee = c.to?.userUniqueId === me.id;
+        if (!iAmCaller && !iAmCallee) return null;            // only my calls
+        const other = iAmCaller ? c.to : c.from;
+        const dur = c.duration || 0;
+        const direction = iAmCaller ? 'outgoing' : (dur === 0 ? 'missed' : 'incoming');
+        return {
+          contactName: other?.name || other?.number || 'Desconocido',
+          number: other?.number || '',
+          direction,
+          date: iso(c.start),
+          duration: dur,
+        };
+      })
+      .filter(Boolean);
+    res.json(records);
+  } catch (e) { req.log?.warn(e); res.json([]); }
+});
+
+// Meetings: not exposed as a documented Extend API spec → clean empty list.
+apiRouter.get('/meetings', (req, res) => res.json(oauthConfigured() ? [] : mock.meetings));
 
 /** POST /api/calls { to } → click-to-call (path pending confirmation). */
 apiRouter.post('/calls', async (req, res) => {
