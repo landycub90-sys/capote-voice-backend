@@ -91,6 +91,23 @@ export async function serviceAccountToken() {
   return saCache.token;
 }
 
+/** PUT to an Extend API endpoint with a bearer token and JSON body. */
+export async function apiPut(path, accessToken, body = {}) {
+  const res = await fetch(`${config.intermedia.apiBase}${path}`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Extend API PUT ${path} → ${res.status}`);
+  // Presence PUT may return an empty body.
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
+}
+
 /** Call an Extend API endpoint with a bearer token. */
 export async function apiGet(path, accessToken) {
   const res = await fetch(`${config.intermedia.apiBase}${path}`, {

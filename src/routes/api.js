@@ -1,6 +1,6 @@
 import { config, oauthConfigured, serviceAccountConfigured } from '../config.js';
 import { getSession, updateTokens } from '../lib/session.js';
-import { apiGet, apiPost, refreshToken, serviceAccountToken } from '../lib/intermedia.js';
+import { apiGet, apiPost, apiPut, refreshToken, serviceAccountToken } from '../lib/intermedia.js';
 import { mock } from '../lib/mock.js';
 import { Router } from 'express';
 
@@ -200,6 +200,23 @@ apiRouter.get('/call-history', async (req, res) => {
 
 // Meetings: not exposed as a documented Extend API spec → clean empty list.
 apiRouter.get('/meetings', (req, res) => res.json(oauthConfigured() ? [] : mock.meetings));
+
+/** POST /api/presence { presence } → publish the user's presence.
+ *  PUT /messaging/v1/presence/accounts/_me/users/{unifiedUserId} { presence }.
+ *  Best-effort: always 200 so the app's optimistic UI is never blocked. */
+apiRouter.post('/presence', async (req, res) => {
+  const presence = String(req.body?.presence || '').toLowerCase();
+  if (!presence) return res.status(400).json({ error: 'missing_presence' });
+  if (!oauthConfigured()) return res.json({ status: 'ok', presence });
+  try {
+    const me = await apiGet('/address-book/v3/contacts/_me', req.userToken); // { id }
+    await apiPut(`/messaging/v1/presence/accounts/_me/users/${me.id}`, req.userToken, { presence });
+    res.json({ status: 'ok', presence });
+  } catch (e) {
+    req.log?.warn(e);
+    res.json({ status: 'accepted', presence, note: 'not published upstream' });
+  }
+});
 
 /** POST /api/calls { to } → click-to-call (path pending confirmation). */
 apiRouter.post('/calls', async (req, res) => {
