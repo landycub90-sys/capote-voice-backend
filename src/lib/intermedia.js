@@ -40,16 +40,13 @@ async function postToken(body) {
     headers.Authorization =
       'Basic ' + Buffer.from(`${rest.client_id}:${client_secret}`).toString('base64');
   }
-  const bodyStr = new URLSearchParams(rest).toString();
-  console.log('TOKEN_REQ', config.intermedia.tokenUrl, '| body:', bodyStr, '| basic:', !!headers.Authorization);
   const res = await fetch(config.intermedia.tokenUrl, {
     method: 'POST',
     headers,
-    body: bodyStr,
+    body: new URLSearchParams(rest).toString(),
   });
   if (!res.ok) {
     const text = await res.text();
-    console.log('TOKEN_ERR', res.status, text);
     throw new Error(`Intermedia token error ${res.status}: ${text}`);
   }
   return res.json();
