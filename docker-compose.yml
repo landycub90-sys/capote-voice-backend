@@ -4,7 +4,22 @@ services:
     image: capote-voice-backend
     container_name: capote-voice
     restart: unless-stopped
-    env_file: .env
+    environment:
+      PORT: "8080"
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
+      OAUTH_REDIRECT_URI: ${OAUTH_REDIRECT_URI}
+      OAUTH_SCOPES: ${OAUTH_SCOPES}
+      SERVICE_ACCOUNT_CLIENT_ID: ${SERVICE_ACCOUNT_CLIENT_ID}
+      SERVICE_ACCOUNT_CLIENT_SECRET: ${SERVICE_ACCOUNT_CLIENT_SECRET}
+      INTERMEDIA_AUTH_URL: ${INTERMEDIA_AUTH_URL}
+      INTERMEDIA_TOKEN_URL: ${INTERMEDIA_TOKEN_URL}
+      INTERMEDIA_API_BASE: ${INTERMEDIA_API_BASE}
+      APP_REDIRECT_SCHEME: ${APP_REDIRECT_SCHEME}
+      APP_JWT_SECRET: ${APP_JWT_SECRET}
+      SERVICE_SCOPES: ${SERVICE_SCOPES}
+      DEVICE_ID: ${DEVICE_ID}
     ports:
       - "127.0.0.1:8080:8080"
 
@@ -13,8 +28,9 @@ services:
     container_name: caddy
     restart: unless-stopped
     network_mode: host
+    # HTTPS automático sin Caddyfile: proxy del dominio al backend local
+    command: caddy reverse-proxy --from voice-api.capotesolutions.com --to 127.0.0.1:8080
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
 
