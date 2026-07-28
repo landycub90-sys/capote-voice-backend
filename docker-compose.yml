@@ -22,6 +22,10 @@ services:
       APP_JWT_SECRET: ${APP_JWT_SECRET}
       SERVICE_SCOPES: ${SERVICE_SCOPES}
       DEVICE_ID: ${DEVICE_ID}
+      SESSION_STORE_PATH: /app/data/sessions.json
+    volumes:
+      # Sesiones persistidas → sobreviven reinicios Y rebuilds del contenedor.
+      - capote_sessions:/app/data
     ports:
       - "127.0.0.1:8080:8080"
 
@@ -39,3 +43,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  capote_sessions:
