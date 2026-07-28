@@ -30,6 +30,7 @@ apiRouter.use(async (req, res, next) => {
 // ── Mappers: Intermedia Extend shapes → app models ──────────────────────────
 function mapContact(c) {
   return {
+    userId: c.id || null,             // Intermedia unified user id (target for chat)
     name: c.displayName || c.email || 'Sin nombre',
     extensionNumber: c.pbx?.extension ?? null,
     phone: c.phoneNumbers?.[0]?.internationalFormatNumber || c.phoneNumbers?.[0]?.number || '',
@@ -55,8 +56,12 @@ async function contactContext(token) {
   const results = book.results || [];
   const self = results.find((c) => c.id === me.id) || {};
   const jidName = {};
-  for (const c of results) if (c.messaging?.jid) jidName[c.messaging.jid] = c.displayName || c.email;
-  return { myJid: self.messaging?.jid || '', jidName };
+  const jidId = {};
+  for (const c of results) if (c.messaging?.jid) {
+    jidName[c.messaging.jid] = c.displayName || c.email;
+    jidId[c.messaging.jid] = c.id;               // jid → unified user id (chat send target)
+  }
+  return { myJid: self.messaging?.jid || '', jidName, jidId };
 }
 
 // ── Endpoints ───────────────────────────────────────────────────────────────
@@ -127,27 +132,27 @@ apiRouter.get('/voicemails', async (req, res) => {
 apiRouter.get('/conversations', async (req, res) => {
   if (!oauthConfigured()) return res.json(mock.conversations);
   try {
-    const { myJid, jidName } = await contactContext(req.userToken);
+    const { myJid, jidName, jidId } = await contactContext(req.userToken);
     const [chat, sms] = await Promise.all([
       apiGet('/messaging/v2/accounts/_me/chat/users/history', req.userToken).catch((e) => (req.log?.warn(e), { records: [] })),
       apiGet('/messaging/v2/accounts/_me/sms/users/history', req.userToken).catch((e) => (req.log?.warn(e), { records: [] })),
     ]);
     const convos = {};
-    // Team chat
+    // Team chat — targetId is the other user's unified id (for sending replies)
     for (const m of chat.records || []) {
       const mine = m.from === myJid;
       const other = mine ? m.to : m.from;
       const text = m.payload?.text || m.payload?.formattedText || '';
       if (!other || !text) continue;
-      (convos[other] ??= { contactName: jidName[other] || String(other).split('@')[0], presence: 'available', messages: [] })
+      (convos[other] ??= { contactName: jidName[other] || String(other).split('@')[0], presence: 'available', targetId: jidId[other] || null, messages: [] })
         .messages.push({ text, date: iso(m.dateTime), isMine: mine });
     }
-    // SMS
+    // SMS — no chat targetId (distinto canal)
     for (const m of sms.records || []) {
       const key = 'sms:' + m.phoneNumber;
       const mine = ['outbound', 'out', 'outgoing'].includes(String(m.direction || '').toLowerCase());
       if (!m.text) continue;
-      (convos[key] ??= { contactName: m.phoneNumber || 'SMS', presence: 'offline', messages: [] })
+      (convos[key] ??= { contactName: m.phoneNumber || 'SMS', presence: 'offline', targetId: null, messages: [] })
         .messages.push({ text: m.text, date: iso(m.dateTime), isMine: mine });
     }
     // Newest conversations first (by last message)
@@ -215,6 +220,25 @@ apiRouter.post('/presence', async (req, res) => {
   } catch (e) {
     req.log?.warn(e);
     res.json({ status: 'accepted', presence, note: 'not published upstream' });
+  }
+});
+
+/** POST /api/messages { to, text } → send a team-chat message.
+ *  POST /messaging/v2/accounts/_me/users/_me/chat/message { target:{id}, payload:{text} }.
+ *  `to` is the recipient's unified user id (contact.userId / conversation.targetId). */
+apiRouter.post('/messages', async (req, res) => {
+  const { to, text } = req.body ?? {};
+  if (!to || !text) return res.status(400).json({ error: 'missing_to_or_text' });
+  if (!oauthConfigured()) return res.json({ status: 'ok' });
+  try {
+    await apiPost('/messaging/v2/accounts/_me/users/_me/chat/message', req.userToken, {
+      target: { id: to },
+      payload: { text },
+    });
+    res.json({ status: 'ok' });
+  } catch (e) {
+    req.log?.warn(e);
+    res.status(502).json({ error: 'send_failed' });
   }
 });
 
