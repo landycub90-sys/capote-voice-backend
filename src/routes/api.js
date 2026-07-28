@@ -242,9 +242,32 @@ apiRouter.post('/messages', async (req, res) => {
   }
 });
 
-/** POST /api/calls { to } → click-to-call (path pending confirmation). */
+/** POST /api/calls { to } → click-to-call ("callback"): rings the user's
+ *  registered device, then dials the destination.
+ *  GET /voice/v2/devices → { clickToCallDevices:[{ id, name, isClickToCall }] }
+ *  POST /voice/v2/calls  { callingDeviceId, mode:'placeCall', phoneNumber }. */
 apiRouter.post('/calls', async (req, res) => {
   const { to } = req.body ?? {};
   if (!to) return res.status(400).json({ error: 'missing_destination' });
-  res.json({ status: 'accepted', to, note: 'click-to-call wiring pending' });
+  if (!oauthConfigured()) return res.json({ status: 'ringing', device: 'Mock' });
+  try {
+    const devices = await apiGet('/voice/v2/devices', req.userToken);
+    const list = devices.clickToCallDevices || [];
+    const dev = list.find((d) => d.isClickToCall) || list[0];
+    if (!dev) {
+      return res.status(409).json({
+        error: 'no_device',
+        message: 'No hay un teléfono registrado en tu extensión para llamar. Necesitas un teléfono de mesa o el softphone activo.',
+      });
+    }
+    await apiPost('/voice/v2/calls', req.userToken, {
+      callingDeviceId: dev.id,
+      mode: 'placeCall',
+      phoneNumber: to,
+    });
+    res.json({ status: 'ringing', device: dev.name || 'tu teléfono' });
+  } catch (e) {
+    req.log?.warn(e);
+    res.status(502).json({ error: 'call_failed', message: 'No se pudo iniciar la llamada.' });
+  }
 });
