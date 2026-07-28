@@ -1,9 +1,9 @@
 services:
   backend:
-    # Imagen construida y publicada por GitHub Actions (ver .github/workflows/docker.yml).
-    # Docker Manager hace `pull`, así que descarga SIEMPRE la última construida desde GitHub.
+    # Se construye en el servidor (docker compose build) y, opcionalmente, GitHub Actions
+    # publica la misma imagen en GHCR para que Docker Manager pueda hacer pull.
+    build: .
     image: ghcr.io/landycub90-sys/capote-voice-backend:latest
-    pull_policy: always
     container_name: capote-voice
     restart: unless-stopped
     environment:
