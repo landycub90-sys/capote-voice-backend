@@ -47,13 +47,26 @@ function iso(v) {
   return (isNaN(d.getTime()) ? new Date(0) : d).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
+/** Fetch the WHOLE address book, following pagination (nextPageOffsetToken).
+ *  Without this, accounts with many users only return their first page. */
+async function fetchAllContacts(token) {
+  const all = [];
+  let offset = null;
+  do {
+    const q = offset ? `?offsetToken=${encodeURIComponent(offset)}` : '';
+    const page = await apiGet(`/address-book/v3/contacts${q}`, token);
+    all.push(...(page.results || []));
+    offset = page.nextPageOffsetToken || null;
+  } while (offset && all.length < 10000); // safety cap
+  return all;
+}
+
 /** Build the user's own JID + a jid→name map from the address book. */
 async function contactContext(token) {
-  const [me, book] = await Promise.all([
+  const [me, results] = await Promise.all([
     apiGet('/address-book/v3/contacts/_me', token),
-    apiGet('/address-book/v3/contacts', token),
+    fetchAllContacts(token),
   ]);
-  const results = book.results || [];
   const self = results.find((c) => c.id === me.id) || {};
   const jidName = {};
   const jidId = {};
@@ -70,8 +83,8 @@ async function contactContext(token) {
 apiRouter.get('/me', async (req, res) => {
   try {
     const me = await apiGet('/address-book/v3/contacts/_me', req.userToken); // { id }
-    const book = await apiGet('/address-book/v3/contacts', req.userToken);
-    const self = (book.results || []).find((c) => c.id === me.id) || (book.results || [])[0] || {};
+    const results = await fetchAllContacts(req.userToken);
+    const self = results.find((c) => c.id === me.id) || results[0] || {};
     res.json({
       id: me.id,
       displayName: self.displayName || 'Usuario',
@@ -88,8 +101,8 @@ apiRouter.get('/me', async (req, res) => {
 /** Company directory (real data). */
 apiRouter.get('/contacts', async (req, res) => {
   try {
-    const book = await apiGet('/address-book/v3/contacts', req.userToken);
-    res.json((book.results || []).map(mapContact));
+    const results = await fetchAllContacts(req.userToken);
+    res.json(results.map(mapContact));
   } catch (e) {
     req.log?.warn(e);
     res.json(oauthConfigured() ? [] : mock.contacts);
